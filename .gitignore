@@ -1,4 +1,4 @@
-﻿# Android / Gradle
+# Android / Gradle
 *.iml
 .gradle/
 .kotlin/
@@ -12,4 +12,6 @@ captures/
 *.apk
 *.aab
 *.keystore
+*.jks
+keystore.properties
 !gradle/wrapper/gradle-wrapper.jar
