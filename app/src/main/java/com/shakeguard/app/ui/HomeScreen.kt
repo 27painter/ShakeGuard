@@ -92,7 +92,11 @@ fun HomeScreen(onRequestNotification: () -> Unit) {
         AccessibilityCard()
 
         if (!sensorSupported) {
-            NoticeCard("本机没有 ColorOS 的「设备动作与方向」开关，摇一摇那部分用不了（本工程主要针对 OPPO / 一加 / ColorOS）。")
+            NoticeCard(
+                "本应用基于 ColorOS 开发（实测 ColorOS 16 / OPPO / 一加 / realme）。\n" +
+                    "本机没有检测到「设备动作与方向」这一项，摇一摇相关功能不可用 —— " +
+                    "如有功能不能用，请按界面提示手动打开对应设置。"
+            )
         }
 
         NoticeCard(
@@ -110,7 +114,7 @@ fun HomeScreen(onRequestNotification: () -> Unit) {
             footer = if (progress.running) "正在跳转…" else "跳到目标页后，你只需按最后一下：⋮ →「全部不允许」",
             footerColor = if (progress.running) WarnColor else OkColor,
             enabled = !progress.running,
-            buttonText = "跳到设置页（最后一步我来点）",
+            buttonText = "跳到设置页（最后一步自己点）",
             onClick = { startNav(GuideKind.SHAKE) },
             links = listOf(
                 "一键全自动关掉" to { startAuto(GuideKind.SHAKE) },
@@ -125,7 +129,7 @@ fun HomeScreen(onRequestNotification: () -> Unit) {
             footer = if (progress.running) "正在跳转…" else "跳到目标页后，你只需按最后一下：⋮ →「全部关闭」",
             footerColor = if (progress.running) WarnColor else OkColor,
             enabled = !progress.running,
-            buttonText = "跳到设置页（最后一步我来点）",
+            buttonText = "跳到设置页（最后一步自己点）",
             onClick = { startNav(GuideKind.TRACK) },
             links = listOf(
                 "一键全自动关掉" to { startAuto(GuideKind.TRACK) },
@@ -154,8 +158,10 @@ fun HomeScreen(onRequestNotification: () -> Unit) {
         }
 
         NoticeCard(
-            "执行期间会自己打开/点击系统设置界面，请保持屏幕点亮、不要手动操作手机。" +
-                "「关闭摇一摇」每个应用约 5~8 秒；「关闭广告追踪」是系统级一键，十几秒。随时可停止。"
+            "使用说明：自动跳转/自动点击期间会自己操作系统设置界面，请保持屏幕点亮、不要手动干预，" +
+                "随时可以停止。\n\n" +
+                "本应用基于 ColorOS 开发（实测 ColorOS 16 / OPPO / 一加 / realme）。" +
+                "如果某些功能在你的机型上不能使用，请按界面提示的路径手动打开对应设置，效果相同。"
         )
     }
 

@@ -71,13 +71,17 @@ fun AboutScreen() {
             )
         }
 
-        Section("什么情况能用") {
+        Section("基于 ColorOS 开发") {
             Text(
-                "✅ ColorOS / OPPO / 一加（有「设备动作与方向」这一项）：完整可用，实测通过。\n\n" +
-                    "⚠️ 系统应用：ColorOS 不给系统应用这个开关，批量时会跳过并标注失败。\n\n" +
-                    "⚠️ 其他 ROM（MIUI/HyperOS、原生 Android）：如果没有 DIRECTION_SENSORS 这个 op，" +
-                    "主页会提示“本机没有该开关”，自动化这一步不适用；" +
-                    "系统级广告开关（settings put）部分仍然有效。"
+                "本应用**基于 ColorOS 开发**（实测机型：OPPO Reno 16 / ColorOS 16 / Android 16），" +
+                    "功能路径与界面文案都按 ColorOS 设计。\n\n" +
+                    "如果某些功能在你的机型上不能使用（例如没有「设备动作与方向」这一项、" +
+                    "或系统的权限页面位置不同），**请按应用内的提示手动打开对应设置**，同样可以达到目的。\n\n" +
+                    "✅ ColorOS / OPPO / 一加 / realme：完整可用。\n" +
+                    "⚠️ 系统应用：ColorOS 不提供「设备动作与方向」开关，批量处理时会跳过并标注。\n" +
+                    "⚠️ 其他 ROM（MIUI / HyperOS / 原生 Android）：若没有 DIRECTION_SENSORS 这个 op，" +
+                    "首页会提示“本机没有该开关”，摇一摇相关功能不适用；" +
+                    "开屏广告跳过（①）、广告域名拦截（④）以及系统级广告开关仍然可用。"
             )
         }
 
