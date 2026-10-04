@@ -2,6 +2,14 @@
 
 > 无需 root、无需 Xposed，用 **Android 无障碍服务 + Shizuku + 本地 VPN**，解决 ColorOS 手机上最烦人的四类广告：**摇一摇跳转广告、开屏广告、个性化广告追踪、广告域名**。
 
+### ⬇️ [**点此下载最新版 APK**](https://github.com/27painter/ShakeGuard/releases/latest)
+
+![Release](https://img.shields.io/github/v/release/27painter/ShakeGuard?style=flat-square&label=release)
+![License](https://img.shields.io/github/license/27painter/ShakeGuard?style=flat-square)
+![Android](https://img.shields.io/badge/Android-11%2B-3DDC84?style=flat-square&logo=android&logoColor=white)
+![Kotlin](https://img.shields.io/badge/Kotlin-2.4-7F52FF?style=flat-square&logo=kotlin&logoColor=white)
+![Compose](https://img.shields.io/badge/Jetpack%20Compose-Material3-4285F4?style=flat-square&logo=jetpackcompose&logoColor=white)
+
 ### 界面预览
 
 | 主页 | 应用与权限状态 | 说明 |
