@@ -1,0 +1,144 @@
+# 摇一摇克星 · 内置广告 / 追踪域名种子规则（保守版，约 150 条）
+#
+# 规则写法：一行一个域名，子域名自动命中（例如 ad.example.com 会被 example.com 命中）。
+# 想更强拦截，请在 App 里点「更新在线规则」（adrules / anti-AD，十万条级别）。
+#
+# 有意「不」拦截的域名：toutiao.com、snssdk.com、bytedance.com 主域、heytapmobi.com、
+# aliyuncs.com 主域、firebaseinstallations.googleapis.com 等 —— 这些是内容/推送/账号服务，
+# 拦了会把 App 弄坏，只拦它们的广告子域。
+
+# ---------- 字节跳动 / 穿山甲（巨量引擎）----------
+pglstatp-toutiao.com
+pangolin-sdk-toutiao.com
+ad.toutiao.com
+ads-api.toutiao.com
+ad.bytedance.com
+oceanengine.com
+sgsnssdk.com
+pangle.io
+
+# ---------- 腾讯 / 广点通 ----------
+gdt.qq.com
+e.qq.com
+ad.qq.com
+adsview.qq.com
+adping.qq.com
+pgdt.gtimg.com
+adsfile.qq.com
+
+# ---------- 百度联盟 ----------
+pos.baidu.com
+cpro.baidu.com
+mobads.baidu.com
+adscdn.baidu.com
+afd.baidu.com
+union.baidu.com
+hm.baidu.com
+
+# ---------- 阿里 / 淘宝广告 ----------
+alimama.cn
+alimama.com
+tanx.com
+mmstat.com
+adash.m.taobao.com
+adash.man.aliyuncs.com
+
+# ---------- 新浪 / 其他国内广告平台 ----------
+sax.sina.com.cn
+sax1.sina.com.cn
+union.360.cn
+adview.cn
+youmi.net
+adwo.com
+domob.cn
+
+# ---------- 国内统计 / 归因 SDK ----------
+umeng.com
+umengcloud.com
+cnzz.com
+wrating.com
+talkingdata.com
+irs01.com
+miaozhen.com
+admaster.com.cn
+sensorsdata.cn
+growingio.com
+adjust.com
+appsflyer.com
+kochava.com
+appier.net
+
+# ---------- OPPO / 一加 自家广告端点（只拦 ad/adx/ads 前缀，不碰 heytapmobi.com 等业务域）----------
+adx.oppo.com
+ads.oppo.com
+ad.oppo.com
+adx.heytap.com
+ads.heytap.com
+ad.heytap.com
+adx.oppomobile.com
+ads.oppomobile.com
+ad.oppomobile.com
+adx.nearme.com.cn
+ads.nearme.com.cn
+ad.nearme.com.cn
+
+# ---------- 设备标识 / OAID 相关 ----------
+msa-alliance.com
+msa-alliance.cn
+
+# ---------- Google 广告 ----------
+doubleclick.net
+googlesyndication.com
+pagead2.googlesyndication.com
+googleads.g.doubleclick.net
+adservice.google.com
+2mdn.net
+app-measurement.com
+
+# ---------- 全球广告交易平台 / 追踪 ----------
+adnxs.com
+adsrvr.org
+amazon-adsystem.com
+bidswitch.net
+casalemedia.com
+criteo.com
+demdex.net
+everesttech.net
+moatads.com
+openx.net
+outbrain.com
+pubmatic.com
+quantserve.com
+rlcdn.com
+rubiconproject.com
+scorecardresearch.com
+sharethrough.com
+smaato.net
+smartadserver.com
+taboola.com
+tapad.com
+teads.tv
+turn.com
+yieldmo.com
+3lift.com
+adform.net
+adsafeprotected.com
+agkn.com
+bluekai.com
+flashtalking.com
+mathtag.com
+mopub.com
+omtrdc.net
+serving-sys.com
+
+# ---------- 移动广告 SDK ----------
+unityads.unity3d.com
+applovin.com
+vungle.com
+adcolony.com
+chartboost.com
+inmobi.com
+mintegral.com
+ironsrc.com
+fyber.com
+supersonicads.com

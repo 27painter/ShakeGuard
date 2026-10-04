@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">摇一摇克星</string>
+
+    <string name="acc_service_label">开屏广告自动跳过</string>
+    <string name="acc_service_summary">广告一出现就自动帮你点「跳过」</string>
+    <string name="acc_service_desc">用于自动点击开屏广告上的「跳过 / 关闭广告」按钮，减少开屏等待时间。本服务只在本机识别按钮文字并点击，不读取、不保存、不上传任何内容。</string>
+</resources>
