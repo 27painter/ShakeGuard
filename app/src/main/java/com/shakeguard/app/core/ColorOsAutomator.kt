@@ -258,6 +258,62 @@ class ColorOsAutomator(private val ui: UiEngine) {
     private fun stopAt(message: String): Outcome =
         Outcome(false, null, null, message, stay = true)
 
+    /**
+     * ② 的配套功能：跳到「设备动作与方向」页，把白名单里的应用逐个改成指定档位。
+     * 默认用「仅开屏时不允许」—— 开屏那 6 秒的摇一摇广告照样拦，
+     * 但 App 内的地图方向指示 / 体感传感器正常可用（导航、赛车、体感游戏专用档）。
+     */
+    fun applyWhitelistOnSensorPage(
+        whitelistLabels: List<String>,
+        option: String = SensorState.OPT_SPLASH,
+        onLog: (String) -> Unit = {}
+    ): Outcome {
+        onLog("正在打开：设置 → 隐私 → 权限管理 → 权限 → 设备动作与方向 …")
+        val privacy = ensurePrivacyEntry() ?: return stopAt("没能自动定位到「隐私」页")
+        ui.click(privacy)
+        Thread.sleep(900L)
+        if (!ui.clickExactScrolling(TXT_PERM_MANAGER, 12_000L, 5)) return stopAt("没能自动点开「权限管理」")
+        Thread.sleep(1_200L)
+        ui.clickExact(TXT_TAB_PERMISSION, 3_500L)
+        Thread.sleep(700L)
+        if (!ui.clickExactScrolling(TXT_SENSOR_ROW, 15_000L, 10)) return stopAt("没能自动找到「设备动作与方向」")
+        Thread.sleep(1_000L)
+        onLog("✅ 已到「设备动作与方向」页，开始按白名单逐个设置")
+
+        var done = 0
+        val failed = ArrayList<String>()
+        for (label in whitelistLabels) {
+            // 系统列表按拼音排序、有上百个应用，白名单里的名字可能排在很后面，所以要多滚一段
+            val row = ui.waitExactScrolling(label, 12_000L, 30)
+            if (row == null) {
+                failed += label
+                onLog("⚠️ 列表里没找到「$label」（可能系统里显示的名字不同，请手动改）")
+                continue
+            }
+            if (!ui.click(row)) {
+                failed += label
+                continue
+            }
+            Thread.sleep(900L)
+            if (ui.clickExact(option, 5_000L)) {
+                done++
+                onLog("✅ $label → $option")
+            } else {
+                failed += label
+                onLog("⚠️ $label 没能选中「$option」")
+            }
+            Thread.sleep(600L)
+        }
+
+        if (failed.isNotEmpty()) onLog("需要手动处理：${failed.joinToString("、")}")
+        ui.home()
+        return Outcome(
+            true, null, null,
+            "白名单设置完成：成功 $done / ${whitelistLabels.size} 个" +
+                if (failed.isEmpty()) "" else "（${failed.size} 个需手动）"
+        )
+    }
+
     private fun fail(message: String): Outcome {
         ui.home()
         return Outcome(false, null, null, message)

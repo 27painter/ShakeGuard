@@ -77,6 +77,7 @@ class BatchService : Service() {
             when (singleTask) {
                 TASK_AD_TRACK -> runSingleTask(title, TASK_AD_TRACK, emptyList())
                 TASK_SHAKE_ALL -> runSingleTask(title, TASK_SHAKE_ALL, whitelistLabels)
+                TASK_WHITELIST_SENSOR -> runSingleTask(title, TASK_WHITELIST_SENSOR, whitelistLabels)
                 TASK_NAV_SHAKE -> runNavigateTask(title, TASK_NAV_SHAKE, whitelistLabels)
                 TASK_NAV_TRACK -> runNavigateTask(title, TASK_NAV_TRACK, emptyList())
                 else -> run(title, packages, labels, sensorOption, trackOption, globalAd)
@@ -211,6 +212,9 @@ class BatchService : Service() {
             val outcome = if (task == TASK_SHAKE_ALL) {
                 appendLog("设置 → 隐私 → 权限管理 → 权限 → 设备动作与方向 → ⋮ → 全部不允许")
                 automator.closeAllShake(whitelistLabels, viaShell) { appendLog(it) }
+            } else if (task == TASK_WHITELIST_SENSOR) {
+                appendLog("按白名单逐个设置「设备动作与方向」= 仅开屏时不允许（保留地图方向/体感）")
+                automator.applyWhitelistOnSensorPage(whitelistLabels, SensorState.OPT_SPLASH) { appendLog(it) }
             } else {
                 appendLog("设置 → 隐私 → 更多 → 设备标识与广告 → 广告跟踪 → ⋮ → 全部关闭")
                 automator.closeAllAdTracking(viaShell) { appendLog(it) }
@@ -364,6 +368,19 @@ class BatchService : Service() {
         const val TASK_SHAKE_ALL = "shake_all"
         const val TASK_NAV_SHAKE = "nav_shake"
         const val TASK_NAV_TRACK = "nav_track"
+        const val TASK_WHITELIST_SENSOR = "whitelist_sensor"
+
+        /** ② 的配套：把白名单里的应用（游戏 / 地图）逐个改成「仅开屏时不允许」 */
+        fun startWhitelistSensor(context: Context, whitelistLabels: List<String>): Boolean {
+            if (progress.value.running) return false
+            val intent = Intent(context, BatchService::class.java).apply {
+                putExtra(EXTRA_TITLE, "按白名单恢复")
+                putExtra(EXTRA_SINGLE_TASK, TASK_WHITELIST_SENSOR)
+                putStringArrayListExtra(EXTRA_WHITELIST_LABELS, ArrayList(whitelistLabels))
+            }
+            ContextCompat.startForegroundService(context, intent)
+            return true
+        }
 
         /** ① 把用户带到「设备动作与方向」页，最后一步交给用户 */
         fun startNavigateShake(context: Context, whitelistLabels: List<String>): Boolean {

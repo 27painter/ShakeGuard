@@ -291,6 +291,18 @@ object Controller {
         if (!BatchService.startNavigateShake(ctx, labels)) message.value = "已有任务在执行"
     }
 
+    /** ② 的配套：把白名单里的应用（导航 / 赛车 / 体感游戏）逐个改成「仅开屏时不允许」 */
+    fun restoreWhitelistSensor() {
+        val ctx = appContext ?: return
+        val labels = apps.value.filter { it.whitelisted }.map { it.label }
+        if (labels.isEmpty()) {
+            message.value = "白名单是空的：先到「应用」页把导航 / 赛车 / 体感游戏加进来"
+            return
+        }
+        launchSettings()
+        if (!BatchService.startWhitelistSensor(ctx, labels)) message.value = "已有任务在执行"
+    }
+
     /** ② 带用户去「广告跟踪」页，最后一步（⋮ → 全部关闭）由用户点 */
     fun openAdTrackPage() {
         val ctx = appContext ?: return

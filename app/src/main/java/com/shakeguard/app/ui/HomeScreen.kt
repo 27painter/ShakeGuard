@@ -71,6 +71,7 @@ fun HomeScreen(onRequestNotification: () -> Unit) {
     val channelReady = shizukuReady || a11yOn
     val canAuto = shizukuReady || a11yOn
     val channel = if (shizukuReady) "Shizuku" else "无障碍服务"
+    val wlCount = apps.count { it.whitelisted }
 
     fun startNav(kind: GuideKind) {
         onRequestNotification()
@@ -135,6 +136,19 @@ fun HomeScreen(onRequestNotification: () -> Unit) {
                 "一键全自动关掉" to { startAuto(GuideKind.TRACK) },
                 "查看手动步骤" to { guide = GuideKind.TRACK }
             )
+        )
+
+        ActionCard(
+            title = "白名单恢复（游戏 / 地图 / 体感）",
+            desc = "把白名单里的应用在系统「设备动作与方向」页里**逐个改成「仅开屏时不允许」**：" +
+                "开屏那 6 秒的摇一摇广告照样被拦，但 App 内的地图方向指示、体感传感器正常可用。\n\n" +
+                "先在「应用」页把导航 / 赛车 / 体感游戏加进白名单，再回来点这个按钮。",
+            footer = if (wlCount == 0) "白名单为空：先去「应用」页勾选要保留传感器的应用"
+            else "白名单 $wlCount 个应用，会自动跳到设置页逐个改好",
+            footerColor = if (wlCount == 0) WarnColor else OkColor,
+            enabled = !progress.running && wlCount > 0,
+            buttonText = "按白名单恢复（仅开屏时不允许）",
+            onClick = { Controller.restoreWhitelistSensor() }
         )
 
         AdBlockCard()
