@@ -41,12 +41,20 @@ object Controller {
     val ruleCount = MutableStateFlow(0)
     val ruleUpdating = MutableStateFlow(false)
 
+    /** 登录跳转保护开关（默认开） */
+    val loginProtect = MutableStateFlow(true)
+
+    /** 「一键全部还原」的执行报告，界面会逐行显示 */
+    val restoreLog = MutableStateFlow<List<String>>(emptyList())
+    val restoring = MutableStateFlow(false)
+
     private const val ICON_PX = 144
 
     fun init(context: Context) {
         val ctx = context.applicationContext
         appContext = ctx
         if (prefs == null) prefs = Prefs(ctx)
+        loginProtect.value = prefs?.loginProtect ?: true
         registerListeners()
         updateStatus()
         scope.launch {
@@ -100,6 +108,135 @@ object Controller {
                 "规则更新失败（网络不可用或源被墙），稍后再试"
             }
         }
+    }
+
+    // ---------- 登录跳转保护 ----------
+
+    fun setLoginProtect(on: Boolean) {
+        val ctx = appContext ?: return
+        RuleStore.setLoginProtect(ctx, on)
+        loginProtect.value = on
+        message.value = if (on) {
+            "已开启登录跳转保护：登录 / 支付域名不再拦截"
+        } else {
+            "已关闭登录跳转保护：拦截更彻底，但登录跳转可能被误伤"
+        }
+    }
+
+    /** 把某个被拦域名加进放行名单（用于个别 App 的登录 / 支付被误拦） */
+    fun allowDomain(domain: String) {
+        val ctx = appContext ?: return
+        if (domain.isBlank()) return
+        scope.launch {
+            RuleStore.addUserAllow(ctx, domain)
+            ruleCount.value = RuleStore.size
+            message.value = "已放行 $domain，以后不再拦截"
+        }
+    }
+
+    // ---------- 一键还原 ----------
+
+    /** 一键还原 VPN：只关掉广告域名拦截，DNS / 网络回到系统默认 */
+    fun restoreVpnOnly() {
+        val ctx = appContext ?: return
+        AdBlockVpnService.stop(ctx)
+        restoreLog.value = listOf("已关闭广告域名拦截，DNS 已恢复系统默认（不再自动重启）")
+        message.value = "VPN 已还原"
+    }
+
+    /**
+     * 一键全部还原：把这个应用做过的所有改动撤回，回到「没装它」的状态。
+     * 依次做四件事：关 VPN → 还原系统广告开关 → 关无障碍服务 → 逐应用还原权限。
+     * 前三步几秒钟完成；第四步要挨个打开系统设置页，耗时较长，会显示进度、可随时停止。
+     */
+    fun restoreAll() {
+        val ctx = appContext ?: return
+        if (restoring.value) return
+        scope.launch {
+            restoring.value = true
+            val log = ArrayList<String>()
+            fun add(line: String) {
+                log.add(line)
+                restoreLog.value = log.toList()
+            }
+            try {
+                // ① VPN
+                AdBlockVpnService.stop(ctx)
+                add("① 广告域名拦截（VPN）已关闭，DNS 恢复系统默认")
+
+                val hasShizuku = status.value == ShizukuStatus.READY
+
+                // ② 系统级广告开关回到出厂状态
+                if (hasShizuku) {
+                    ShizukuShell.putSetting("secure", "ad_defender_switch", "1")
+                    ShizukuShell.putSetting("system", "ad_interception_switch", "0")
+                    ShizukuShell.putSetting("global", "limit_ad_tracking", "0")
+                    add("② 系统广告开关已还原为默认（广告追踪重新允许，这是 ColorOS 出厂状态）")
+                } else {
+                    add("② 系统广告开关需要 Shizuku，已跳过（可手动在 设置 → 隐私 里改回）")
+                }
+
+                // ③ 关掉无障碍服务（开屏广告自动跳过）
+                val a11yOff = if (hasShizuku) disableAccessibilityService(ctx) else false
+                if (a11yOff) {
+                    add("③ 开屏广告自动跳过已关闭")
+                } else {
+                    add("③ 无障碍服务需要手动关：设置 → 无障碍 → 已下载的应用 → 开屏广告自动跳过")
+                }
+                refreshAccessibilityState()
+
+                // ④ 逐应用还原权限
+                val targets = apps.value.filter {
+                    it.sensor == SensorState.DENIED || it.track == TrackState.DENIED
+                }
+                if (targets.isEmpty()) {
+                    add("④ 没有需要还原的应用权限，全部完成 ✅")
+                } else if (!hasShizuku) {
+                    add("④ 还有 ${targets.size} 个应用的权限需要还原，这项需要 Shizuku；" +
+                        "手动方式：权限管理 → 设备动作与方向 → 选应用 → 「仅开屏时不允许」")
+                } else {
+                    val started = BatchService.start(
+                        context = ctx,
+                        title = "还原全部权限",
+                        packages = targets.map { it.packageName },
+                        labels = targets.map { it.label },
+                        sensorOption = SensorState.OPT_SPLASH,
+                        trackOption = TrackState.OPT_ALLOW
+                    )
+                    add(
+                        if (started) "④ 正在把 ${targets.size} 个应用的权限逐个还原（约 ${targets.size * 7 / 60 + 1} 分钟，可随时停止）"
+                        else "④ 有别的任务正在跑，权限还原没启动；等它跑完再点一次「一键全部还原」"
+                    )
+                }
+                message.value = "已还原：VPN 已关，其余见下方报告"
+            } catch (t: Throwable) {
+                add("❌ 出错：${t.javaClass.simpleName}: ${t.message}")
+            } finally {
+                restoring.value = false
+                refresh()
+            }
+        }
+    }
+
+    /** 通过 Shizuku 把本应用的无障碍服务从系统设置里摘掉 */
+    private fun disableAccessibilityService(ctx: Context): Boolean {
+        val self = ctx.packageName
+        val current = ShizukuShell.getSetting("secure", "enabled_accessibility_services")
+        if (current.contains("Exception", ignoreCase = true) || current.contains("Error", ignoreCase = true)) {
+            return false
+        }
+        // settings get 在键不存在时返回字符串 "null"，别把它当成一个服务名写回去
+        val rest = current.split(':')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() && it != "null" && !it.startsWith(self) }
+        val result = if (rest.isEmpty()) {
+            val a = ShizukuShell.exec("settings delete secure enabled_accessibility_services", 8_000L)
+            ShizukuShell.putSetting("secure", "accessibility_enabled", "0")
+            a
+        } else {
+            ShizukuShell.putSetting("secure", "enabled_accessibility_services", rest.joinToString(":"))
+        }
+        return result.err.isBlank()
     }
 
     fun onResume() {

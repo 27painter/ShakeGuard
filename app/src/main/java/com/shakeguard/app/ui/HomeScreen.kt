@@ -8,6 +8,7 @@ import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -27,6 +28,7 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,9 +49,10 @@ import com.shakeguard.app.core.Controller
 import com.shakeguard.app.core.SensorState
 import com.shakeguard.app.core.ShizukuStatus
 import com.shakeguard.app.core.SkipAdAccessibilityService
+import com.shakeguard.app.core.TrackState
 import com.shakeguard.app.core.net.AdBlockVpnService
 
-private enum class ConfirmKind { SHAKE, TRACK, RESTORE }
+private enum class ConfirmKind { SHAKE, TRACK, RESTORE, RESTORE_ALL }
 
 /** 没有 Shizuku 时改走"手动步骤引导" */
 private enum class GuideKind { SHAKE, TRACK }
@@ -153,8 +156,10 @@ fun HomeScreen(onRequestNotification: () -> Unit) {
 
         AdBlockCard()
 
+        RestoreCard(onRestoreAll = { confirm = ConfirmKind.RESTORE_ALL })
+
         ActionCard(
-            title = "⑤ 还原成系统默认",
+            title = "⑥ 还原摇一摇设置（只动这一项）",
             desc = "把已被改为「不允许」的应用还原为「仅开屏时不允许」（ColorOS 原始默认档，只拦截开屏的 6 秒）。" +
                 if (shizukuReady) ""
                 else "\n\n此功能需要 Shizuku。手动方式：权限管理 → 设备动作与方向 → 选择应用 → 「仅开屏时不允许」。",
@@ -193,6 +198,16 @@ fun HomeScreen(onRequestNotification: () -> Unit) {
                 body = "将打开系统设置，自动点：隐私 → 更多 → 设备标识与广告 → 广告跟踪 → ⋮ → 全部关闭。\n\n" +
                     "通道：$channel。这会关掉所有应用（含系统应用）的 OAID 广告跟踪。\n\n现在开始吗？"
             }
+            ConfirmKind.RESTORE_ALL -> {
+                title = "一键全部还原"
+                body = "会把本应用做过的所有改动撤回：\n" +
+                    "① 关闭广告域名拦截（VPN）\n" +
+                    "② 系统广告开关恢复 ColorOS 默认（广告追踪重新允许）\n" +
+                    "③ 关闭开屏广告自动跳过（无障碍服务）\n" +
+                    "④ 逐个把 ${apps.count { it.sensor == SensorState.DENIED || it.track == TrackState.DENIED }} 个应用的权限还原\n\n" +
+                    "前 3 步几秒完成；第 4 步要挨个打开系统设置页，比较慢（可随时停止）。\n" +
+                    "适合「某个 App 登录跳不出去 / 想暂时恢复原样」的场景。\n\n现在开始吗？"
+            }
             else -> {
                 title = "还原摇一摇设置"
                 body = "将把 ${apps.count { it.sensor == SensorState.DENIED }} 个应用改回“仅开屏时不允许”。"
@@ -210,6 +225,7 @@ fun HomeScreen(onRequestNotification: () -> Unit) {
                         ConfirmKind.SHAKE -> Controller.startDenyShake()
                         ConfirmKind.TRACK -> Controller.startDenyTracking()
                         ConfirmKind.RESTORE -> Controller.startRestoreShake()
+                        ConfirmKind.RESTORE_ALL -> Controller.restoreAll()
                     }
                 }) { Text("开始") }
             },
@@ -295,6 +311,7 @@ private fun AccessibilityCard() {
     val alive by Controller.accessibilityLive.collectAsState()
     val skipped by SkipAdAccessibilityService.skipCount.collectAsState()
     val lastLabel by SkipAdAccessibilityService.lastSkipLabel.collectAsState()
+    val guarded by SkipAdAccessibilityService.guardCount.collectAsState()
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -310,12 +327,19 @@ private fun AccessibilityCard() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
+                "防误点：只在该应用刚进前台的 7 秒内点；界面上有「登录 / 授权 / 验证码」时一律不点；" +
+                    "微信、QQ、支付宝、淘宝 这四个登录中转站完全不点。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
                 when {
                     !enabled -> "状态：未开启 —— 请到「设置 → 无障碍 → 已下载的应用」中开启"
                     !alive -> "状态：已开启但服务未连接（应用被系统清理过）—— 请到无障碍设置里关闭后重新开启一次"
                     else -> {
                         val extra = if (lastLabel.isNotBlank()) "　最近跳过：$lastLabel" else ""
-                        "状态：已开启 ✅　累计自动跳过 $skipped 次$extra"
+                        "状态：已开启 ✅　累计自动跳过 $skipped 次$extra" +
+                            if (guarded > 0) "　｜ 挡下误点 $guarded 次" else ""
                     }
                 },
                 style = MaterialTheme.typography.bodySmall,
@@ -343,6 +367,7 @@ private fun AdBlockCard() {
     val recent by AdBlockVpnService.recentBlocked.collectAsState()
     val rules by Controller.ruleCount.collectAsState()
     val updating by Controller.ruleUpdating.collectAsState()
+    val loginProtect by Controller.loginProtect.collectAsState()
 
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
         if (result.resultCode == android.app.Activity.RESULT_OK) {
@@ -378,11 +403,43 @@ private fun AdBlockCard() {
             )
             if (recent.isNotEmpty()) {
                 Text(
-                    "最近拦截：" + recent.take(3).joinToString("、"),
+                    "最近拦截（点一下可放行）：",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+                recent.take(3).forEach { domain ->
+                    Text(
+                        "· $domain",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { Controller.allowDomain(domain) }
+                            .padding(vertical = 2.dp)
+                    )
+                }
             }
+
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "登录跳转保护",
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        "带 login / passport / pay / oauth 字样的域名永不拦截，" +
+                            "并内置淘宝、支付宝、微信、QQ、京东等登录域名白名单。关掉会更彻底，但可能把登录跳转拦坏。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Switch(
+                    checked = loginProtect,
+                    onCheckedChange = { Controller.setLoginProtect(it) }
+                )
+            }
+
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (running) {
                     OutlinedButton(onClick = { Controller.stopVpn() }, modifier = Modifier.weight(1f)) {
@@ -409,6 +466,52 @@ private fun AdBlockCard() {
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
+        }
+    }
+}
+
+@Composable
+private fun RestoreCard(onRestoreAll: () -> Unit) {
+    val vpnRunning by AdBlockVpnService.running.collectAsState()
+    val restoring by Controller.restoring.collectAsState()
+    val report by Controller.restoreLog.collectAsState()
+
+    Card(
+        Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer)
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(
+                "⑤ 一键还原（出问题先点这里）",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                "拦截太狠、某个 App 登录跳不出去、或者想暂时把手机恢复原样 —— 这两个按钮就是退路。\n" +
+                    "「还原 VPN」只断开广告域名拦截；「全部还原」会把这个应用做过的所有改动都撤回。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(
+                    onClick = { Controller.restoreVpnOnly() },
+                    modifier = Modifier.weight(1f)
+                ) { Text("还原 VPN") }
+                Button(
+                    onClick = onRestoreAll,
+                    enabled = !restoring,
+                    modifier = Modifier.weight(1f)
+                ) { Text(if (restoring) "还原中…" else "一键全部还原") }
+            }
+            Text(
+                if (vpnRunning) "VPN 当前：运行中 —— 点「还原 VPN」立即断开，且不会自动重连"
+                else "VPN 当前：已关闭",
+                style = MaterialTheme.typography.bodySmall,
+                color = if (vpnRunning) WarnColor else OkColor
+            )
+            report.forEach {
+                Text(it, style = MaterialTheme.typography.bodySmall)
+            }
         }
     }
 }

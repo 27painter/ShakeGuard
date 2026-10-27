@@ -19,6 +19,75 @@ object DnsPacket {
 
     fun ipHeaderLength(packet: ByteArray): Int = (packet[0].toInt() and 0x0F) * 4
 
+    /** DNS 报文在整包里的起始位置 */
+    fun dnsOffset(packet: ByteArray): Int = ipHeaderLength(packet) + 8
+
+    private fun u16(data: ByteArray, at: Int): Int =
+        if (at + 1 < data.size) (((data[at].toInt() and 0xFF) shl 8) or (data[at + 1].toInt() and 0xFF)) else 0
+
+    /** 跳过 DNS 名字（兼容压缩指针），返回下一个字段的偏移；解析失败返回 -1 */
+    private fun skipName(data: ByteArray, start: Int): Int {
+        var p = start
+        var guard = 0
+        while (p < data.size && guard++ < 128) {
+            val len = data[p].toInt() and 0xFF
+            if (len == 0) return p + 1
+            if (len and 0xC0 == 0xC0) return p + 2
+            p += 1 + len
+        }
+        return -1
+    }
+
+    /**
+     * 取应答里最小的 TTL（秒），给本地缓存用。
+     * 解析不出来就按 60 秒算，绝不返回 0（返回 0 等于不缓存）。
+     */
+    fun minTtl(payload: ByteArray): Int {
+        if (payload.size < 12) return 60
+        val qd = u16(payload, 4)
+        val an = u16(payload, 6)
+        val ns = u16(payload, 8)
+        val ar = u16(payload, 10)
+        var p = 12
+        repeat(qd) {
+            p = skipName(payload, p)
+            if (p < 0) return 60
+            p += 4
+            if (p > payload.size) return 60
+        }
+        if (an == 0) return 30          // 空应答（NXDOMAIN / NODATA）短缓存，避免把临时故障放大
+        var min = Int.MAX_VALUE
+        repeat(an + ns + ar) {
+            p = skipName(payload, p)
+            if (p < 0 || p + 10 > payload.size) return 60
+            val ttl = ((payload[p + 4].toInt() and 0xFF) shl 24) or
+                ((payload[p + 5].toInt() and 0xFF) shl 16) or
+                ((payload[p + 6].toInt() and 0xFF) shl 8) or
+                (payload[p + 7].toInt() and 0xFF)
+            if (ttl in 1 until min) min = ttl
+            p += 10 + u16(payload, p + 8)
+            if (p > payload.size) return 60
+        }
+        if (min == Int.MAX_VALUE) return 60
+        return min
+    }
+
+    /**
+     * 缓存命中时把应答「改造成这次查询的应答」：
+     * 事务 ID 必须换成当前查询的，否则客户端会把它当成过期包直接丢掉。
+     */
+    fun rewriteForCached(payload: ByteArray, query: ByteArray): ByteArray {
+        val out = payload.copyOf()
+        if (out.size < 12) return out
+        val q = dnsOffset(query)
+        if (query.size >= q + 12) {
+            out[0] = query[q]
+            out[1] = query[q + 1]
+            out[2] = (((out[2].toInt() and 0xFE) or (query[q + 2].toInt() and 0x01))).toByte()
+        }
+        return out
+    }
+
     fun isIpv4Udp(packet: ByteArray, length: Int): Boolean {
         if (length < 28) return false
         if ((packet[0].toInt() and 0xF0) != 0x40) return false

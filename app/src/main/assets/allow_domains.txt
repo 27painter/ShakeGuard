@@ -1,0 +1,132 @@
+# 摇一摇克星 · 放行名单（登录 / 支付 / 授权关键域名）
+#
+# 为什么需要这份名单：
+#   广告规则库里偶尔会混进「登录跳转」所依赖的域名。一旦被拦成 0.0.0.0，
+#   就会出现「点微信/QQ/支付宝登录，跳过去又弹回来」「授权页一片空白」这类怪现象。
+#
+# 匹配规则（比拦截规则更强势，永远优先）：
+#   1) 本文件里的域名及其所有子域名，永不拦截；
+#   2) 本文件里域名的「上级域名」也一起放行 —— 例如写了 graph.qq.com，
+#      那么即使规则库里有人拦 qq.com，也不会波及登录；
+#   3) 域名里带 login / passport / oauth / sso / openapi / verify / captcha /
+#      wallet / pay 这类词的，默认也不拦（可在 App 里关掉「登录跳转保护」）。
+#
+# 用户自己添加的放行域名写在 files/rules_allow.txt，格式同样是「一行一个域名」。
+
+# ---------- 阿里：淘宝 / 天猫 / 支付宝 ----------
+login.taobao.com
+login.tmall.com
+login.m.taobao.com
+login.m.tmall.com
+passport.alipay.com
+auth.alipay.com
+mapi.alipay.com
+openapi.alipay.com
+openapi.alipaydev.com
+render.alipay.com
+ds.alipay.com
+mclient.alipay.com
+security.alipay.com
+cashier.alipay.com
+pay.taobao.com
+pay.tmall.com
+oauth.taobao.com
+oauth.tmall.com
+open.taobao.com
+open.taobao.net
+gw.alipayobjects.com
+a.alipayobjects.com
+t.alipayobjects.com
+mdap.alipay.com
+amap.alipay.com
+account.alibabacloud.com
+signin.aliyun.com
+
+# ---------- 腾讯：微信 / QQ ----------
+open.weixin.qq.com
+long.weixin.qq.com
+login.weixin.qq.com
+login.wechat.com
+support.weixin.qq.com
+szsupport.weixin.qq.com
+res.wx.qq.com
+mp.weixin.qq.com
+graph.qq.com
+ptlogin2.qq.com
+xui.ptlogin2.qq.com
+ssl.ptlogin2.qq.com
+openmobile.qq.com
+connect.qq.com
+msdk.qq.com
+login.qq.com
+imgcache.qq.com
+qlogo.cn
+qlogo.com
+
+# ---------- 微博 ----------
+api.weibo.com
+api.weibo.cn
+openapi.weibo.cn
+login.sina.com.cn
+login.sina.cn
+passport.weibo.com
+passport.weibo.cn
+
+# ---------- 京东 / 拼多多 / 美团 / 饿了么 ----------
+passport.jd.com
+plogin.m.jd.com
+open.jd.com
+openocean.jd.com
+login.pinduoduo.com
+open.pinduoduo.com
+passport.meituan.com
+open.meituan.com
+openapi.meituan.com
+login.ele.me
+open.shop.ele.me
+
+# ---------- 字节：抖音 / 头条 ----------
+open.douyin.com
+developer.open-douyin.com
+openapi.douyin.com
+sso.douyin.com
+login.douyin.com
+open.microapp.bytedance.com
+
+# ---------- 快手 / 小红书 / B 站 / 网易 ----------
+open.kuaishou.com
+open.kwaixiaodian.com
+openapi.xiaohongshu.com
+ark.xiaohongshu.com
+passport.bilibili.com
+passport.biligame.com
+open.bilibili.com
+dl.reg.163.com
+open.163.com
+openapi.netease.com
+
+# ---------- 手机厂商账号 / 一键登录 ----------
+id6.me
+onepass.heytapmobi.com
+account.heytapmobi.com
+id.heytap.com
+account.oppo.com
+id.mi.com
+account.xiaomi.com
+open.account.xiaomi.com
+login.cloud.huawei.com
+oauth-login.cloud.huawei.com
+developer.huawei.com
+id.vivo.com.cn
+open.vivo.com.cn
+open.unionpay.com
+cashier.95516.com
+
+# ---------- 国际账号（部分 App 会用） ----------
+appleid.apple.com
+idmsa.apple.com
+accounts.google.com
+oauth2.googleapis.com
+login.microsoftonline.com
+login.live.com
+graph.facebook.com

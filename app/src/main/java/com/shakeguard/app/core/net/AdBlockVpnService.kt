@@ -1,6 +1,7 @@
 package com.shakeguard.app.core.net
 
 import android.app.Notification
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -22,6 +23,7 @@ import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetAddress
 import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicInteger
 
 /**
  * 广告域名拦截：一个「只劫持 DNS」的本地 VPN（AdGuard 的 DNS 模式就是这个原理）。
@@ -31,8 +33,15 @@ import java.util.concurrent.Executors
  *
  * 工作流程：
  *   应用的 DNS 查询被送到 10.111.222.1:53 -> 我们解析出域名
+ *     -> 放行名单命中：直接转发，绝不拦（登录 / 支付域名走这条）
  *     -> 命中广告规则：直接回 0.0.0.0（这个域名等于被拔了网线）
- *     -> 没命中：用受保护的 socket 转发给上游 DNS，把应答写回 TUN
+ *     -> 没命中：先查本地缓存；缓存没有再用受保护的 socket 转发给上游 DNS
+ *
+ * 稳定性要点（v1.1 重点修的就是这里）：
+ *   - 本地 LRU 缓存：冷启动那种几十个查询的突发场景不再打满线程池；
+ *   - 线程池 8 -> 32：突发时不会排队排到客户端超时（超时的表现就是「偶尔断网」）；
+ *   - 上游超时 3s -> 1.2s，并且记住上次成功的上游先问：最坏情况从 9s 降到 ~3.6s；
+ *   - 不再对每个查询打 Log.i：那是同步 I/O，查询一多会明显拖慢解析。
  */
 class AdBlockVpnService : VpnService() {
 
@@ -41,6 +50,11 @@ class AdBlockVpnService : VpnService() {
 
     @Volatile
     private var active = false
+
+    private val cache = DnsCache()
+
+    /** 记住上一次成功的上游下标，下次优先用它 */
+    private val preferredUpstream = AtomicInteger(0)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
@@ -81,6 +95,7 @@ class AdBlockVpnService : VpnService() {
         tun = pfd
         active = true
         running.value = true
+        cache.clear()
         worker = Thread({ loop(pfd) }, "shakeguard-dns").also { it.start() }
     }
 
@@ -88,7 +103,7 @@ class AdBlockVpnService : VpnService() {
         val input = FileInputStream(pfd.fileDescriptor)
         val output = FileOutputStream(pfd.fileDescriptor)
         val buffer = ByteArray(32767)
-        val pool = Executors.newFixedThreadPool(8)
+        val pool = Executors.newFixedThreadPool(POOL_SIZE)
         try {
             while (active) {
                 val n = try {
@@ -98,7 +113,7 @@ class AdBlockVpnService : VpnService() {
                 }
                 if (n <= 0) continue
                 val packet = buffer.copyOf(n)
-                pool.execute { handle(packet, n, output) }
+                runCatching { pool.execute { handle(packet, n, output) } }
             }
         } catch (t: Throwable) {
             // 服务被停掉时读会抛异常，正常
@@ -116,26 +131,35 @@ class AdBlockVpnService : VpnService() {
         val question = DnsPacket.parseQuestion(packet, length) ?: return
         queryCount.value = queryCount.value + 1
 
+        // 1) 命中广告规则：回 0.0.0.0
         if (RuleStore.isBlocked(question.domain)) {
             blockedCount.value = blockedCount.value + 1
             recordBlocked(question.domain)
             val payload = DnsPacket.buildBlockedPayload(packet, length, question) ?: return
-            val reply = DnsPacket.buildUdpReply(packet, length, payload, payload.size)
-            Log.i(TAG, "拦截 ${question.domain} 应答长度=${reply?.size ?: -1}")
-            writePacket(output, reply)
+            writePacket(output, DnsPacket.buildUdpReply(packet, length, payload, payload.size))
+            maybeUpdateNotification()
             return
         }
 
+        // 2) 本地缓存
+        val key = question.qType.toString() + "|" + question.domain
+        val cached = cache.get(key)
+        if (cached != null) {
+            val payload = DnsPacket.rewriteForCached(cached, packet)
+            writePacket(output, DnsPacket.buildUdpReply(packet, length, payload, payload.size))
+            return
+        }
+
+        // 3) 问上游
         val upstream = queryUpstream(packet, length)
         if (upstream == null) {
-            Log.e(TAG, "上游全部失败，${question.domain} 返回 SERVFAIL")
+            Log.w(TAG, "上游全部失败：${question.domain}")
             val payload = DnsPacket.buildFailurePayload(packet, length) ?: return
             writePacket(output, DnsPacket.buildUdpReply(packet, length, payload, payload.size))
             return
         }
-        val reply = DnsPacket.buildUdpReply(packet, length, upstream, upstream.size)
-        Log.i(TAG, "转发 ${question.domain} 上游应答=${upstream.size} 回包=${reply?.size ?: -1} 查询包=$length")
-        writePacket(output, reply)
+        runCatching { cache.put(key, upstream, DnsPacket.minTtl(upstream)) }
+        writePacket(output, DnsPacket.buildUdpReply(packet, length, upstream, upstream.size))
     }
 
     private fun writePacket(output: FileOutputStream, packet: ByteArray?) {
@@ -147,24 +171,30 @@ class AdBlockVpnService : VpnService() {
 
     /** 用受保护的 socket 去问上游 DNS（不 protect 的话会被自己的 VPN 再抓回来，形成死循环） */
     private fun queryUpstream(packet: ByteArray, length: Int): ByteArray? {
-        val dnsOffset = DnsPacket.ipHeaderLength(packet) + 8
+        val dnsOffset = DnsPacket.dnsOffset(packet)
         val dnsLength = length - dnsOffset
         if (dnsLength <= 0) return null
 
-        for (server in UPSTREAM_SERVERS) {
+        val start = preferredUpstream.get() % UPSTREAM_SERVERS.size
+        for (i in UPSTREAM_SERVERS.indices) {
+            val index = (start + i) % UPSTREAM_SERVERS.size
+            val server = UPSTREAM_SERVERS[index]
             try {
                 DatagramSocket().use { socket ->
-                    socket.soTimeout = 3000
+                    socket.soTimeout = UPSTREAM_TIMEOUT_MS
                     protect(socket)
                     val address = InetAddress.getByName(server)
                     socket.send(DatagramPacket(packet, dnsOffset, dnsLength, address, 53))
                     val responseBuffer = ByteArray(4096)
                     val response = DatagramPacket(responseBuffer, responseBuffer.size)
                     socket.receive(response)
-                    if (response.length > 0) return responseBuffer.copyOf(response.length)
+                    if (response.length > 0) {
+                        preferredUpstream.set(index)
+                        return responseBuffer.copyOf(response.length)
+                    }
                 }
             } catch (t: Throwable) {
-                Log.e(TAG, "上游 $server 查询失败: ${t.javaClass.simpleName}: ${t.message}")
+                Log.w(TAG, "上游 $server 查询失败：${t.javaClass.simpleName}")
             }
         }
         return null
@@ -182,6 +212,18 @@ class AdBlockVpnService : VpnService() {
         recentBlocked.value = next
     }
 
+    private var lastNotifyAt = 0L
+
+    private fun maybeUpdateNotification() {
+        val now = System.currentTimeMillis()
+        if (now - lastNotifyAt < 5_000L) return
+        lastNotifyAt = now
+        runCatching {
+            getSystemService(NotificationManager::class.java)
+                .notify(NOTIFICATION_ID, buildNotification())
+        }
+    }
+
     override fun onRevoke() {
         stopVpn()
         super.onRevoke()
@@ -194,7 +236,8 @@ class AdBlockVpnService : VpnService() {
         runCatching { tun?.close() }
         tun = null
         worker = null
-        stopForeground(STOP_FOREGROUND_REMOVE)
+        cache.clear()
+        runCatching { stopForeground(STOP_FOREGROUND_REMOVE) }
         stopSelf()
     }
 
@@ -226,6 +269,8 @@ class AdBlockVpnService : VpnService() {
         private const val NOTIFICATION_ID = 1002
         private const val VIRTUAL_DNS = "10.111.222.1"
         private const val VIRTUAL_ADDRESS = "10.111.222.2"
+        private const val POOL_SIZE = 32
+        private const val UPSTREAM_TIMEOUT_MS = 1200
         private val UPSTREAM_SERVERS = listOf("223.5.5.5", "119.29.29.29", "114.114.114.114")
 
         val running = MutableStateFlow(false)
@@ -244,6 +289,8 @@ class AdBlockVpnService : VpnService() {
             runCatching { Prefs(context).vpnDesired = false }
             val intent = Intent(context, AdBlockVpnService::class.java).setAction(ACTION_STOP)
             runCatching { ContextCompat.startForegroundService(context, intent) }
+            // 服务还没起来/已被系统回收时，上面的 stop intent 可能没人处理，这里兜一层
+            running.value = false
         }
 
         fun hasNotificationPermission(context: Context): Boolean =

@@ -28,9 +28,15 @@ class Prefs(context: Context) {
         get() = sp.getBoolean(KEY_VPN_DESIRED, false)
         set(value) = sp.edit().putBoolean(KEY_VPN_DESIRED, value).apply()
 
+    /** 登录跳转保护：域名里带 login/passport/pay 这类词的一律不拦（默认开） */
+    var loginProtect: Boolean
+        get() = sp.getBoolean(KEY_LOGIN_PROTECT, true)
+        set(value) = sp.edit().putBoolean(KEY_LOGIN_PROTECT, value).apply()
+
     companion object {
         private const val KEY_WHITELIST = "whitelist"
         private const val KEY_LAST = "last_batch_at"
         private const val KEY_VPN_DESIRED = "vpn_desired"
+        private const val KEY_LOGIN_PROTECT = "login_protect"
     }
 }
