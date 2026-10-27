@@ -239,6 +239,10 @@ private fun AppDetailDialog(entry: AppEntry, onDismiss: () -> Unit) {
                     Controller.setWhitelisted(entry.packageName, entry.label, !entry.whitelisted)
                     onDismiss()
                 }
+                ActionRow("临时放行 60 分钟（灰名单：不自动跳过它的开屏广告）") {
+                    Controller.addGrey(entry.packageName, entry.label)
+                    onDismiss()
+                }
             }
         },
         confirmButton = {

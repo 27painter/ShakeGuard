@@ -16,11 +16,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
  * v1.1 重点：不再乱点。以前只要是「跳过」就点，结果把登录页 / 授权页上的「跳过」
  * 也点掉了 —— 表现就是「点微信登录，跳过去又弹回来」。现在有三道闸：
  *
- *   闸 1（时间窗）：只在该应用「刚刚被切到前台」的 7 秒内点，过了这段时间一律不点。
+ *   闸 1（时间窗）：只在该应用「刚刚被切到前台」的几秒内点，过了这段时间一律不点。
  *                   开屏广告就在这几秒里，登录页/授权页都在之后。
- *   闸 2（登录页识别）：当前界面出现「登录 / 授权 / 验证码 / 手机号」这类字样时，绝不点。
- *   闸 3（授权宿主保护）：微信 / QQ / 支付宝 / 淘宝 这几个「登录中转站」完全不去点，
- *                   宁可漏跳它们自己的开屏广告，也不冒险打断登录跳转。
+ *   闸 2（登录页识别）：当前界面出现「登录 / 授权 / 验证码 / 手机号」这类字样时，绝不点，
+ *                   并且把这个 App 送进**灰名单**（默认 60 分钟），这段时间彻底不碰它。
+ *   闸 3（灰名单）：灰名单里的应用直接放行 —— 宁可不跳它的开屏广告，也不能再打断一次登录。
+ *
+ * 微信 / QQ / 支付宝 / 淘宝 这些「登录中转站」不再一刀切排除：
+ * 它们的开屏广告照常跳（这几个 App 的广告最多），只在真的撞上登录页时才退到灰名单。
  */
 class SkipAdAccessibilityService : AccessibilityService() {
 
@@ -65,29 +68,35 @@ class SkipAdAccessibilityService : AccessibilityService() {
         // 系统设置类界面里出现的"跳过"不是广告，直接跳过，避免误点
         if (SKIP_PACKAGES.contains(pkg)) return
         if (pkg.startsWith("com.android.settings") || pkg.startsWith("com.oplus.securitypermission")) return
-        // 闸 3：登录中转站，一律不点
-        if (LOGIN_HOST_PACKAGES.contains(pkg)) return
+
+        // 闸 3：灰名单里的应用彻底放行（登录优先，开屏广告先不管）
+        if (GreyList.isGrey(pkg)) return
 
         val now = System.currentTimeMillis()
         if (now - lastClickAt < MIN_INTERVAL_MS) return
 
         // 闸 1：只在该应用刚进前台的开屏窗口内动手
         val seen = firstSeenAt[pkg] ?: return
-        if (now - seen > SPLASH_WINDOW_MS) return
+        val highRisk = LOGIN_HOST_PACKAGES.contains(pkg)
+        val window = if (highRisk) HIGH_RISK_WINDOW_MS else SPLASH_WINDOW_MS
+        if (now - seen > window) return
 
         // 刚识别出这是登录页：安静一会儿
         if (loginScreenPkg == pkg && now < loginScreenUntil) return
 
         val root = runCatching { rootInActiveWindow }.getOrNull() ?: return
-        val match = runCatching { findSkipNode(root) }.getOrNull() ?: return
+        val match = runCatching { findSkipNode(root, highRisk) }.getOrNull() ?: return
 
-        // 闸 2：界面上有登录/授权字样就不点
+        // 闸 2：界面上有登录/授权字样就不点，并把这个 App 送进灰名单
         if (runCatching { looksLikeLoginScreen(root) }.getOrDefault(false)) {
             loginScreenPkg = pkg
             loginScreenUntil = now + LOGIN_SCREEN_QUIET_MS
             guardCount.value = guardCount.value + 1
             lastGuardLabel.value = match.label
-            Log.i(TAG, "识别为登录/授权页，放弃点击「${match.label}」（$pkg）")
+            val entry = GreyList.add(applicationContext, pkg, "识别到登录/授权页，自动放行")
+            releasedCount.value = releasedCount.value + 1
+            lastReleased.value = entry.label
+            Log.i(TAG, "识别为登录/授权页，放弃点击「${match.label}」，${entry.label} 进灰名单 ${entry.remainingMinutes} 分钟")
             return
         }
 
@@ -101,12 +110,14 @@ class SkipAdAccessibilityService : AccessibilityService() {
 
     private data class Match(val node: AccessibilityNodeInfo, val label: String)
 
-    private fun findSkipNode(root: AccessibilityNodeInfo): Match? {
+    private fun findSkipNode(root: AccessibilityNodeInfo, strict: Boolean): Match? {
         for (keyword in KEYWORDS) {
             val found = runCatching { root.findAccessibilityNodeInfosByText(keyword) }.getOrNull() ?: continue
             for (node in found) {
                 val label = (node.text?.toString() ?: node.contentDescription?.toString())?.trim() ?: continue
                 if (!isSkipLabel(label)) continue
+                // 登录中转站只认「跳过 / 跳过广告 / 跳过 3」这类最纯的开头，别的一律不动
+                if (strict && !isStrictSkipLabel(label)) continue
                 val target = walkUpToClickable(node) ?: continue
                 return Match(target, label)
             }
@@ -122,6 +133,16 @@ class SkipAdAccessibilityService : AccessibilityService() {
         // 「跳过登录」「跳过绑定」这类不是广告按钮
         if (NOT_AD_LABELS.any { label.contains(it) }) return false
         return KEYWORDS.any { label.equals(it, ignoreCase = true) || label.contains(it) }
+    }
+
+    /**
+     * 严格模式（登录中转站专用）：必须以「跳过 / 关闭广告」这类词开头才算广告按钮。
+     * 这样「跳过 3」「跳过广告 5s」照样能点，但「跳过登录」「跳过绑定」不会误伤。
+     */
+    private fun isStrictSkipLabel(label: String): Boolean {
+        val l = label.trim()
+        if (l.startsWith("跳过") || l.startsWith("点击跳过") || l.startsWith("关闭广告")) return true
+        return l.startsWith("Skip", ignoreCase = true) || l.equals("SKIP", ignoreCase = true)
     }
 
     /**
@@ -165,6 +186,10 @@ class SkipAdAccessibilityService : AccessibilityService() {
         super.onServiceConnected()
         instance = this
         alive.value = true
+        runCatching {
+            GreyList.load(applicationContext)
+            GreyList.prune(applicationContext)
+        }
         Log.i(TAG, "无障碍服务已连接，可以用它来代替 Shizuku 驱动系统界面")
     }
 
@@ -187,6 +212,9 @@ class SkipAdAccessibilityService : AccessibilityService() {
         /** 开屏窗口：应用被切到前台后只在这段时间内找「跳过」 */
         private const val SPLASH_WINDOW_MS = 7_000L
 
+        /** 登录中转站用更短的窗口，减少撞上登录页的机会 */
+        private const val HIGH_RISK_WINDOW_MS = 5_000L
+
         /** 一旦认出登录页，这个应用安静 20 秒 */
         private const val LOGIN_SCREEN_QUIET_MS = 20_000L
 
@@ -202,6 +230,10 @@ class SkipAdAccessibilityService : AccessibilityService() {
         /** 因为「看起来像登录页」而主动放弃点击的次数（首页会显示，让你知道保护在生效） */
         val guardCount = MutableStateFlow(0)
         val lastGuardLabel = MutableStateFlow("")
+
+        /** 因为撞上登录页而被送进灰名单（自动放行）的次数 */
+        val releasedCount = MutableStateFlow(0)
+        val lastReleased = MutableStateFlow("")
 
         /**
          * 服务是否真的处于"已连接"状态。
@@ -229,7 +261,8 @@ class SkipAdAccessibilityService : AccessibilityService() {
 
         /**
          * 登录中转站：微信 / QQ / 支付宝 / 淘宝。
-         * 跳转登录时目标就是这几个 App，它们自己也有开屏广告 —— 但为了不打断登录，全部不点。
+         * 它们的开屏广告照常跳（广告最多），但用更短的窗口 + 更严的文案匹配，
+         * 一旦真的撞上登录页就自动进灰名单放行。
          */
         private val LOGIN_HOST_PACKAGES = setOf(
             "com.tencent.mm",

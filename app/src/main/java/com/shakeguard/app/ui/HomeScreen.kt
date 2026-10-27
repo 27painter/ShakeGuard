@@ -25,6 +25,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -32,8 +33,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -51,6 +54,7 @@ import com.shakeguard.app.core.ShizukuStatus
 import com.shakeguard.app.core.SkipAdAccessibilityService
 import com.shakeguard.app.core.TrackState
 import com.shakeguard.app.core.net.AdBlockVpnService
+import kotlinx.coroutines.delay
 
 private enum class ConfirmKind { SHAKE, TRACK, RESTORE, RESTORE_ALL }
 
@@ -312,6 +316,18 @@ private fun AccessibilityCard() {
     val skipped by SkipAdAccessibilityService.skipCount.collectAsState()
     val lastLabel by SkipAdAccessibilityService.lastSkipLabel.collectAsState()
     val guarded by SkipAdAccessibilityService.guardCount.collectAsState()
+    val released by SkipAdAccessibilityService.releasedCount.collectAsState()
+    val grey by Controller.greyEntries.collectAsState()
+
+    // 灰名单要显示「还剩几分钟」，每 30 秒刷新一次
+    var tick by remember { mutableStateOf(0) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            delay(30_000L)
+            tick += 1
+        }
+    }
+
     Card(Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(
@@ -327,8 +343,9 @@ private fun AccessibilityCard() {
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
             Text(
-                "防误点：只在该应用刚进前台的 7 秒内点；界面上有「登录 / 授权 / 验证码」时一律不点；" +
-                    "微信、QQ、支付宝、淘宝 这四个登录中转站完全不点。",
+                "防误点：只在该应用刚进前台的几秒内点（微信/QQ/支付宝/淘宝 5 秒，其它 7 秒）；" +
+                    "界面上出现「登录 / 授权 / 验证码」时一律不点，并把该应用放进下面的灰名单，" +
+                    "接下来 60 分钟彻底不碰它 —— 淘宝、微信这些开屏广告照样跳，只在真撞上登录时才让路。",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
@@ -345,6 +362,47 @@ private fun AccessibilityCard() {
                 style = MaterialTheme.typography.bodySmall,
                 color = if (enabled && alive) OkColor else WarnColor
             )
+
+            HorizontalDivider()
+
+            Text(
+                if (grey.isEmpty()) {
+                    "灰名单：空 —— 哪个 App 的登录被打断过，就会自动出现在这里" +
+                        if (released > 0) "（已自动放行 $released 次）" else ""
+                } else {
+                    "灰名单：${grey.size} 个应用正在放行" +
+                        if (released > 0) "（累计自动放行 $released 次）" else ""
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = if (grey.isEmpty()) MaterialTheme.colorScheme.onSurfaceVariant else OkColor
+            )
+            // key(tick)：每 30 秒重算一次「剩余 N 分钟」
+            key(tick) {
+                grey.take(6).forEach { e ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            "· ${e.label}　剩 ${e.remainingMinutes} 分钟",
+                            style = MaterialTheme.typography.bodySmall,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { Controller.removeGrey(e.pkg) }) {
+                            Text("解除", style = MaterialTheme.typography.labelMedium)
+                        }
+                    }
+                }
+            }
+            if (grey.size > 6) {
+                Text(
+                    "还有 ${grey.size - 6} 个…",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            if (grey.isNotEmpty()) {
+                OutlinedButton(onClick = { Controller.clearGrey() }, modifier = Modifier.fillMaxWidth()) {
+                    Text("清空灰名单（立刻恢复自动跳过）")
+                }
+            }
             Button(onClick = { openAccessibilitySettings(context) }, modifier = Modifier.fillMaxWidth()) {
                 Text(
                     when {

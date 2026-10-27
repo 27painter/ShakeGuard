@@ -44,6 +44,9 @@ object Controller {
     /** 登录跳转保护开关（默认开） */
     val loginProtect = MutableStateFlow(true)
 
+    /** 灰名单：撞上登录页的 App 会被临时放行，这里给界面用 */
+    val greyEntries get() = GreyList.entries
+
     /** 「一键全部还原」的执行报告，界面会逐行显示 */
     val restoreLog = MutableStateFlow<List<String>>(emptyList())
     val restoring = MutableStateFlow(false)
@@ -132,6 +135,27 @@ object Controller {
             ruleCount.value = RuleStore.size
             message.value = "已放行 $domain，以后不再拦截"
         }
+    }
+
+    // ---------- 灰名单（临时放行） ----------
+
+    /** 手动把某个应用放进灰名单：60 分钟内不自动跳过它的开屏广告 */
+    fun addGrey(pkg: String, label: String) {
+        val ctx = appContext ?: return
+        GreyList.add(ctx, pkg, "手动放行 60 分钟")
+        message.value = "已放行「$label」60 分钟（期间不自动跳过它的开屏广告）"
+    }
+
+    fun removeGrey(pkg: String) {
+        val ctx = appContext ?: return
+        GreyList.remove(ctx, pkg)
+        message.value = "已解除灰名单，恢复自动跳过"
+    }
+
+    fun clearGrey() {
+        val ctx = appContext ?: return
+        GreyList.clear(ctx)
+        message.value = "灰名单已清空"
     }
 
     // ---------- 一键还原 ----------
