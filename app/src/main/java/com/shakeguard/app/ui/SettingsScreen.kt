@@ -257,8 +257,14 @@ fun SettingsScreen() {
                     "注意：手机重启后 Shizuku 服务会停，需要重新启动一次。"
             }
             Expandable("没有 Shizuku 怎么办（本机实测）") {
-                "在这台 OPPO / ColorOS 16 上 Shizuku 用不了：它的界面会提示" +
-                    "「您的设备制造商限制了 adb 的权限」，而开发者选项里没有能解开这个限制的开关。\n\n" +
+                "在这台 OPPO / ColorOS 16 上，Shizuku 的**服务能启动**，但**授权一定失败**，所以实际用不了。\n\n" +
+                    "卡在哪一步（实测）：\n" +
+                    "1）Shizuku 服务以 shell(uid 2000) 身份正常跑起来了；\n" +
+                    "2）点「授权本应用」时，Shizuku 要让 shell 执行 pm grant 把 " +
+                    "moe.shizuku.manager.permission.API_V23 授给本应用；\n" +
+                    "3）这个权限的 protectionLevel 是 dangerous，需要 GRANT_RUNTIME_PERMISSIONS；\n" +
+                    "4）ColorOS 把 shell 的这个权限收掉了 → SecurityException → 弹「adb 权限受限」。\n\n" +
+                    "手动绕过也不行：该权限不在应用的运行时权限列表里，系统设置里没有对应开关。\n\n" +
                     "所以需要 Shizuku 的两项（批量关摇一摇、批量关广告追踪）会自动切换成" +
                     "「看手动步骤」——点开就是系统设置里的准确路径，照着点几下即可。\n\n" +
                     "批量关摇一摇还有一条路：用电脑跑仓库里的 tools/close-shake-ads.ps1，" +

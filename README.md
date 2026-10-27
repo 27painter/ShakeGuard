@@ -316,8 +316,37 @@ A：**②③ 是的**，必须如实说明。它们的原理是"读取设置界�
 **Q：点了按钮没反应 / 跳转失败？**
 A：先看首页 ① 卡片的状态行。如果是「已开启但服务未连接」，说明应用被系统清理过，无障碍服务已被标记 crashed —— 到 `设置 → 无障碍 → 已下载的应用 → 开屏广告自动跳过` 关闭再打开一次即可。建议平时在最近任务里给它**加锁 🔒**，并在「耗电管理」里允许后台活动 / 自启动。
 
-**Q：Shizuku 提示「adb 权限受限」？**
-A：部分 ColorOS / 一加机型限制了 adb 权限，Shizuku 无法授权，这是系统限制。不使用 Shizuku 也能用全部功能（走无障碍通道）。
+**Q：Shizuku 提示「adb 权限受限」，到底卡在哪？**
+A：实测（PMM110 / ColorOS 16 / Android 16）——**Shizuku 服务能启动，但授权一定失败**，所以实际用不了。链条是这样的：
+
+```
+1) Shizuku server 以 shell(uid 2000) 正常跑起来            ✅
+2) 应用点「授权」→ Shizuku 让 shell 执行
+   pm grant <app> moe.shizuku.manager.permission.API_V23
+3) 该权限 protectionLevel = dangerous，需要
+   GRANT_RUNTIME_PERMISSIONS
+4) ColorOS 把 shell 的这个权限收掉了
+   → SecurityException: grantRuntimePermission:
+     Neither user 2000 nor current process has
+     GRANT_RUNTIME_PERMISSIONS
+   → 弹「adb 权限受限」，应用永远停在「未授权」
+```
+
+可以自己复现：
+
+```bash
+adb shell pm grant com.shakeguard.app moe.shizuku.manager.permission.API_V23
+# → SecurityException: ... does not have GRANT_RUNTIME_PERMISSIONS
+
+adb shell dumpsys package moe.shizuku.privileged.api | grep -A3 API_V23
+# → prot=dangerous
+```
+
+手动绕过也不行：这个权限不在应用的运行时权限列表里，系统设置里没有对应开关。
+
+结论：**不是 Shizuku 的问题，是 ColorOS 把 shell 的 `pm grant` / `cmd appops set` 全收了。**
+任何「借 shell 身份」的方案（Shizuku、无线调试直连 adbd）都绕不过去，只有 uid 0（root）能改。
+好在这不影响使用：②③ 会自动切换成「看手动步骤」，①④ 本来就不需要 Shizuku。
 
 **Q：为什么 ②③ 要点最后一下，④ 却能全自动？**
 A：系统没有向第三方应用开放「批量修改权限页」的接口，只能自动化操作系统界面；而 ①④ 不需要任何系统权限，所以可以完全自动。
