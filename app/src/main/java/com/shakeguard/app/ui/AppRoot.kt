@@ -46,7 +46,7 @@ fun AppRoot(onRequestNotification: () -> Unit) {
                         when (tab) {
                             0 -> "摇一摇克星"
                             1 -> "应用与权限状态"
-                            else -> "原理 · 兼容性 · 设置"
+                            else -> "设置"
                         }
                     )
                 },
@@ -73,8 +73,8 @@ fun AppRoot(onRequestNotification: () -> Unit) {
                 NavigationBarItem(
                     selected = tab == 2,
                     onClick = { tab = 2 },
-                    icon = { Text("ⓘ") },
-                    label = { Text("说明") }
+                    icon = { Text("⚙") },
+                    label = { Text("设置") }
                 )
             }
         }
@@ -83,7 +83,7 @@ fun AppRoot(onRequestNotification: () -> Unit) {
             when (tab) {
                 0 -> HomeScreen(onRequestNotification)
                 1 -> AppsScreen()
-                else -> AboutScreen()
+                else -> SettingsScreen()
             }
         }
     }
