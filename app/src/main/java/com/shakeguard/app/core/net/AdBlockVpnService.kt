@@ -58,6 +58,10 @@ class AdBlockVpnService : VpnService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_STOP) {
+            // 如果这个 intent 是通过 startForegroundService 下发的，系统要求 5 秒内必须 startForeground，
+            // 否则抛 ForegroundServiceDidNotStartInTimeException 直接把整个进程干掉（实测崩溃）。
+            // 这里先补一次 startForeground 满足契约，再立刻收摊。
+            runCatching { startForeground(NOTIFICATION_ID, buildNotification()) }
             stopVpn()
             return START_NOT_STICKY
         }
@@ -229,6 +233,14 @@ class AdBlockVpnService : VpnService() {
         super.onRevoke()
     }
 
+    override fun onDestroy() {
+        active = false
+        running.value = false
+        runCatching { tun?.close() }
+        tun = null
+        super.onDestroy()
+    }
+
     private fun stopVpn() {
         active = false
         running.value = false
@@ -287,10 +299,18 @@ class AdBlockVpnService : VpnService() {
 
         fun stop(context: Context) {
             runCatching { Prefs(context).vpnDesired = false }
-            val intent = Intent(context, AdBlockVpnService::class.java).setAction(ACTION_STOP)
-            runCatching { ContextCompat.startForegroundService(context, intent) }
-            // 服务还没起来/已被系统回收时，上面的 stop intent 可能没人处理，这里兜一层
+            val wasRunning = running.value
             running.value = false
+            // 没在运行就不要再 startForegroundService 了：那会拉起一个「必须在 5 秒内 startForeground」
+            // 的前台服务，而我们只是要它别跑 —— 白白触发系统异常。
+            if (!wasRunning) {
+                // 状态可能过期（比如进程被杀过），用 stopService 兜一层：没在跑时它是空操作
+                runCatching { context.stopService(Intent(context, AdBlockVpnService::class.java)) }
+                return
+            }
+            val intent = Intent(context, AdBlockVpnService::class.java).setAction(ACTION_STOP)
+            val sent = runCatching { context.startService(intent) }.isSuccess
+            if (!sent) runCatching { ContextCompat.startForegroundService(context, intent) }
         }
 
         fun hasNotificationPermission(context: Context): Boolean =

@@ -189,11 +189,11 @@ object Controller {
                 val targets = apps.value.filter {
                     it.sensor == SensorState.DENIED || it.track == TrackState.DENIED
                 }
-                if (targets.isEmpty()) {
-                    add("④ 没有需要还原的应用权限，全部完成 ✅")
-                } else if (!hasShizuku) {
-                    add("④ 还有 ${targets.size} 个应用的权限需要还原，这项需要 Shizuku；" +
+                if (!hasShizuku) {
+                    add("④ 各应用的权限状态读不到（需要 Shizuku），这一步跳过；" +
                         "手动方式：权限管理 → 设备动作与方向 → 选应用 → 「仅开屏时不允许」")
+                } else if (targets.isEmpty()) {
+                    add("④ 没有需要还原的应用权限，全部完成 ✅")
                 } else {
                     val started = BatchService.start(
                         context = ctx,
